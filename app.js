@@ -348,42 +348,52 @@ const fileStorage = {
 
 // Handler for multiple church photos (up to 10)
 function handleMultipleFilesSelected(event, previewId, labelId, maxFiles = 10) {
-  const files = Array.from(event.target.files);
-  if (!files || files.length === 0) return;
+  const newFiles = Array.from(event.target.files);
+  // Reset input so the same file can be re-selected in future picks
+  event.target.value = '';
+
+  if (!newFiles || newFiles.length === 0) return;
 
   const labelEl = document.getElementById(labelId);
   const previewContainer = document.getElementById(previewId);
 
-  if (files.length > maxFiles) {
-    alert(`You can upload a maximum of ${maxFiles} church photos.`);
-    event.target.value = '';
+  // Initialise storage array if this is the first pick
+  if (!fileStorage.churchPhotos) fileStorage.churchPhotos = [];
+
+  const remaining = maxFiles - fileStorage.churchPhotos.length;
+  if (remaining <= 0) {
+    alert(`You have already uploaded the maximum of ${maxFiles} photos.`);
     return;
   }
 
-  fileStorage.churchPhotos = [];
-  if (previewContainer) {
-    previewContainer.innerHTML = '';
-    previewContainer.classList.remove('hidden');
+  // Warn and trim if the combined total would exceed the cap
+  let filesToAdd = newFiles;
+  if (newFiles.length > remaining) {
+    alert(`You can add ${remaining} more photo${remaining > 1 ? 's' : ''} (max ${maxFiles} total). Only the first ${remaining} will be added.`);
+    filesToAdd = newFiles.slice(0, remaining);
   }
 
-  let totalSizeMB = 0;
-  let loadedCount = 0;
+  // Show preview container; remove any existing "Add More" button so we
+  // re-insert it correctly at the end after all thumbnails are added.
+  if (previewContainer) {
+    previewContainer.classList.remove('hidden');
+    const existingBtn = previewContainer.querySelector('.add-more-photos-btn');
+    if (existingBtn) existingBtn.remove();
+  }
 
-  files.forEach((file, idx) => {
+  let pendingCount = filesToAdd.length;
+
+  filesToAdd.forEach((file) => {
     if (file.size > 5 * 1024 * 1024) {
-      alert(`File "${file.name}" exceeds 5MB limit. Please select smaller files.`);
+      alert(`File "${file.name}" exceeds 5MB limit and was skipped.`);
+      pendingCount--;
+      refreshLabelAndButton(labelEl, previewContainer, labelId, previewId, maxFiles, event.target.id);
       return;
     }
 
-    totalSizeMB += file.size / (1024 * 1024);
-
     const reader = new FileReader();
     reader.onload = function(e) {
-      const photoObj = {
-        name: file.name,
-        type: file.type,
-        dataUrl: e.target.result
-      };
+      const photoObj = { name: file.name, type: file.type, dataUrl: e.target.result };
       fileStorage.churchPhotos.push(photoObj);
 
       // Keep first photo in churchPhoto for backward compatibility
@@ -392,23 +402,96 @@ function handleMultipleFilesSelected(event, previewId, labelId, maxFiles = 10) {
       }
 
       if (previewContainer) {
+        const idx = fileStorage.churchPhotos.length;
         const imgThumb = document.createElement('div');
         imgThumb.className = 'relative group w-16 h-16 rounded-lg overflow-hidden border border-gold-500/40 shadow';
+        imgThumb.dataset.photoIndex = idx - 1;
         imgThumb.innerHTML = `
           <img src="${e.target.result}" alt="${file.name}" class="w-full h-full object-cover">
-          <span class="absolute bottom-0 inset-x-0 bg-black/70 text-[9px] text-center text-white truncate px-0.5">#${fileStorage.churchPhotos.length}</span>
+          <button type="button" onclick="removeChurchPhoto(${idx - 1}, '${previewId}', '${labelId}', ${maxFiles}, '${event.target.id}')"
+            class="absolute top-0 right-0 bg-rose-600/90 hover:bg-rose-500 text-white rounded-bl text-[10px] px-1 py-0.5 leading-none opacity-0 group-hover:opacity-100 transition">✕</button>
+          <span class="absolute bottom-0 inset-x-0 bg-black/70 text-[9px] text-center text-white truncate px-0.5">#${idx}</span>
         `;
         previewContainer.appendChild(imgThumb);
       }
 
-      loadedCount++;
-      if (labelEl) {
-        labelEl.textContent = `Selected ${loadedCount} Photo${loadedCount > 1 ? 's' : ''} (${totalSizeMB.toFixed(2)} MB total)`;
-        labelEl.classList.add('text-gold-300');
-      }
+      pendingCount--;
+      refreshLabelAndButton(labelEl, previewContainer, labelId, previewId, maxFiles, event.target.id);
     };
     reader.readAsDataURL(file);
   });
+}
+
+/** Re-renders the label text and the "Add More" / "Max reached" button. */
+function refreshLabelAndButton(labelEl, previewContainer, labelId, previewId, maxFiles, inputId) {
+  const count = fileStorage.churchPhotos ? fileStorage.churchPhotos.length : 0;
+  const totalMB = fileStorage.churchPhotos
+    ? fileStorage.churchPhotos.reduce((s, p) => s + (p.dataUrl ? Math.round(atob(p.dataUrl.split(',')[1] || '').length) / (1024 * 1024) : 0), 0)
+    : 0;
+
+  if (labelEl) {
+    labelEl.textContent = `${count} Photo${count !== 1 ? 's' : ''} selected (${totalMB.toFixed(2)} MB total)`;
+    labelEl.classList.add('text-gold-300');
+  }
+
+  if (!previewContainer) return;
+
+  // Remove existing button before re-adding
+  const existingBtn = previewContainer.querySelector('.add-more-photos-btn');
+  if (existingBtn) existingBtn.remove();
+
+  if (count < maxFiles) {
+    const addBtn = document.createElement('button');
+    addBtn.type = 'button';
+    addBtn.className = 'add-more-photos-btn w-16 h-16 flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-gold-500/50 hover:border-gold-400 text-gold-400 hover:text-gold-300 transition text-[10px] font-semibold gap-1';
+    addBtn.innerHTML = `<span class="text-xl leading-none">+</span><span>Add More</span>`;
+    addBtn.onclick = (e) => { e.stopPropagation(); document.getElementById(inputId).click(); };
+    previewContainer.appendChild(addBtn);
+  }
+}
+
+/** Removes a single thumbnail from storage and re-renders. */
+function removeChurchPhoto(index, previewId, labelId, maxFiles, inputId) {
+  if (!fileStorage.churchPhotos) return;
+  fileStorage.churchPhotos.splice(index, 1);
+  // Update backward-compat reference
+  fileStorage.churchPhoto = fileStorage.churchPhotos[0] || null;
+
+  const previewContainer = document.getElementById(previewId);
+  const labelEl = document.getElementById(labelId);
+
+  if (previewContainer) {
+    // Remove all thumbnails (not the add-more button) and re-render
+    previewContainer.querySelectorAll('[data-photo-index]').forEach(el => el.remove());
+
+    fileStorage.churchPhotos.forEach((photo, i) => {
+      const imgThumb = document.createElement('div');
+      imgThumb.className = 'relative group w-16 h-16 rounded-lg overflow-hidden border border-gold-500/40 shadow';
+      imgThumb.dataset.photoIndex = i;
+      imgThumb.innerHTML = `
+        <img src="${photo.dataUrl}" alt="${photo.name}" class="w-full h-full object-cover">
+        <button type="button" onclick="removeChurchPhoto(${i}, '${previewId}', '${labelId}', ${maxFiles}, '${inputId}')"
+          class="absolute top-0 right-0 bg-rose-600/90 hover:bg-rose-500 text-white rounded-bl text-[10px] px-1 py-0.5 leading-none opacity-0 group-hover:opacity-100 transition">✕</button>
+        <span class="absolute bottom-0 inset-x-0 bg-black/70 text-[9px] text-center text-white truncate px-0.5">#${i + 1}</span>
+      `;
+      // Insert before the add-more button
+      const addBtn = previewContainer.querySelector('.add-more-photos-btn');
+      previewContainer.insertBefore(imgThumb, addBtn || null);
+    });
+
+    if (fileStorage.churchPhotos.length === 0) {
+      previewContainer.classList.add('hidden');
+      const addBtn = previewContainer.querySelector('.add-more-photos-btn');
+      if (addBtn) addBtn.remove();
+      if (labelEl) {
+        labelEl.textContent = 'Click or drag & drop Church Photos here (up to 10)';
+        labelEl.classList.remove('text-gold-300');
+      }
+      return;
+    }
+  }
+
+  refreshLabelAndButton(labelEl, previewContainer, labelId, previewId, maxFiles, inputId);
 }
 
 function handleFileSelected(event, previewId, labelId) {
