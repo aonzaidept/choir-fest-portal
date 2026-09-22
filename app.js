@@ -6,7 +6,7 @@
  */
 
 // Default Webhook URL (Replace this with your deployed Google Apps Script /exec URL)
-const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycbzL5p4G3M2b1.../exec'; // Will fallback to saved or embedded URL
+const DEFAULT_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycby3A9u0tTInMjsyv0kzzEXSbrj2Il9Xf6ttzL40-ET6qpjDWmV-zQ5wId9W7RZ-UJM/exec'; // Will fallback to saved or embedded URL
 const WEBHOOK_STORAGE_KEY = 'csi_choir_fest_webhook_url';
 let currentStep = 1;
 const totalSteps = 5;
